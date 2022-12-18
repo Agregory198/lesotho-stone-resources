@@ -1,0 +1,463 @@
+---
+title: "Gregory_CortexRatio"
+author: "Alex Gregory"
+date: "2022-12-17"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(plyr)
+library(coxed)
+library(boot)
+```
+
+
+# Import datasets
+```{r include=FALSE}
+# Import survey data from landscape
+survey.dat <- 
+  read.csv("~/LithicProcurementProject/Seh 2016 survey recording system_complete_03.17.17.csv", header=T)
+# Import flake data from Sehonghong
+flake.dat <-
+  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_flakes.csv", header=T)
+
+# Combine rbl and clbrf
+flake.dat$Level[which(flake.dat$Level=="rbl"|
+                        flake.dat$Level=="clbrf")] <- "rbl-clbrf"
+flake.dat$MaxLength <- ifelse(flake.dat$MaxLength==0,.01,flake.dat$MaxLength)
+flake.dat$MaxWidth <- ifelse(flake.dat$MaxWidth==0,.01,flake.dat$MaxWidth)
+flake.dat$MaxThickness <- ifelse(flake.dat$MaxThickness==0,.01,flake.dat$MaxThickness)
+
+# Remove an outlier in flakes for the *rf* level with over 300 grams in mass
+#flake.dat <- flake.dat[-which(flake.dat$RawMaterial=="Dolerite" & flake.dat$Level=="rf" & flake.dat$Mass > 300),]
+# Remove an outlier in flakes for the *rf* level with over 300 grams in mass
+#flake.dat <- flake.dat[-which(flake.dat$RawMaterial=="Dolerite" & flake.dat$Level=="barf" & flake.dat$Mass > 30),] 
+# >130 for one
+
+flake.dat$Type <- "Flake"
+for(i in 1:nrow(flake.dat)){
+  if(flake.dat[i,"CortexArea"]=="11-40%"){
+    flake.dat[i,"CortexArea"] = .2
+  } else if(flake.dat[i,"CortexArea"]=="61-90%"){
+    flake.dat[i,"CortexArea"] = .75
+  } else if(flake.dat[i,"CortexArea"]=="41-60%"){
+    flake.dat[i,"CortexArea"] = .5
+  } else if(flake.dat[i,"CortexArea"]=="1-9%"){
+    flake.dat[i,"CortexArea"] = .05
+  } else if(flake.dat[i,"CortexArea"]=="100%"){
+    flake.dat[i,"CortexArea"] = 1
+  } else if(flake.dat[i,"CortexArea"]=="91-99%"){
+    flake.dat[i,"CortexArea"] = .95
+  } else if(flake.dat[i,"CortexArea"]=="0%"){
+    flake.dat[i,"CortexArea"] = 0
+  }
+}
+
+
+# Import Core data from Sehonghong
+core.dat <- 
+  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_cores.csv", header=T)
+
+# COmbine rbl and clbrf
+core.dat$Level[which(core.dat$Level=="rbl"|
+                        core.dat$Level=="clbrf")] <- "rbl-clbrf"
+core.dat$MaxLength <- ifelse(core.dat$MaxLength==0,.01,core.dat$MaxLength)
+core.dat$MaxWidth <- ifelse(core.dat$MaxWidth==0,.01,core.dat$MaxWidth)
+core.dat$MaxThickness <- ifelse(core.dat$MaxThickness==0,.01,core.dat$MaxThickness)
+
+# Remove an outlier in cores for the *bas* level
+#core.dat <- core.dat[-which(core.dat$RawMaterial=="Dolerite" & core.dat$Level=="bas"),]
+# Remove an outlier in cores for the *rbl-clbrf* level
+#core.dat <- core.dat[-which(core.dat$RawMaterial=="Dolerite" & core.dat$Level=="rbl-clbrf" & core.dat$Mass > 300),]
+
+if(length(core.dat[1,1]>2)){
+  core.dat$Type <- "Core"
+  for(i in 1:nrow(core.dat)){
+    if(core.dat[i,"OverallCortexArea"]=="11-40%"){
+      core.dat[i,"OverallCortexArea"] = .2
+    } else if(core.dat[i,"OverallCortexArea"]=="61-90%"){
+      core.dat[i,"OverallCortexArea"] = .75
+    } else if(core.dat[i,"OverallCortexArea"]=="41-60%"){
+      core.dat[i,"OverallCortexArea"] = .5
+    } else if(core.dat[i,"OverallCortexArea"]=="1-9%"){
+      core.dat[i,"OverallCortexArea"] = .05
+    } else if(core.dat[i,"OverallCortexArea"]=="100%"){
+      core.dat[i,"OverallCortexArea"] = 1
+    } else if(core.dat[i,"OverallCortexArea"]=="91-99%"){
+      core.dat[i,"OverallCortexArea"] = .95
+    } else if(core.dat[i,"OverallCortexArea"]=="0%"){
+      core.dat[i,"OverallCortexArea"] = 0
+    }
+  }
+}
+
+
+```
+
+
+
+
+# Function
+```{r include=FALSE}
+cortex_ratio <- function(flake.dat, core.dat, survey.dat, level, material, material2, grav){
+  
+  # Select survey data
+  data.nodule <- survey.dat[which(survey.dat$Raw.material.type==material),c(7,12:15)]
+  data.nodule <- na.omit(data.nodule)
+  #######
+  
+  # COmbine flake and core data
+  # Select flake data
+  flake.dat <- flake.dat[which(flake.dat$RawMaterial==material2 &
+                               flake.dat$Level == level),c(20,66,68,70,77,83)]
+  names(flake.dat) <- c("CortexArea", "Length", "Width", "Thickness", "Mass", "Type")
+  
+  # Select core data
+  if(is.character(core.dat)==F){
+    core.dat <- core.dat[which(core.dat$RawMaterial==material2 &
+                             core.dat$Level == level), c(14,76:79,83)]
+    names(core.dat) <- c("CortexArea", "Length", "Width", "Thickness", "Mass", "Type")
+  } else{
+    core.dat <- data.frame()
+  }
+  
+  # Create assemblage by combining flake and core data
+  data.assemblage <- rbind(flake.dat, core.dat)
+  data.assemblage <- na.omit(data.assemblage)
+  
+  
+  # COmpute Assemblage Volume
+  data.assemblage$V <- (data.assemblage$Mass/grav)*1000
+  
+  
+  # COmpute nodule Volume
+  data.nodule <- na.omit(data.nodule)
+  data.nodule$V <- (4/3)*pi*(data.nodule$Length/2)*(data.nodule$Width/2)*(data.nodule$Thickness/2)
+  nodule.V <- mean(data.nodule$V)
+  
+  # Compute Surface area for nodules
+  p=1.6075
+  data.nodule$SA <- 4*pi*((((((data.nodule$Length/2)^p)*((data.nodule$Width/2)^p)) +
+                              ((((data.nodule$Length/2)^p)*((data.nodule$Thickness/2)^p))) +
+                              ((((data.nodule$Width/2)^p)*((data.nodule$Thickness/2)^p))))/3)^(1/p))
+  nodule.SA <- mean(data.nodule$SA)
+  
+  # Compute cobble count
+  cob_count <- sum(data.assemblage$V)/nodule.V
+  
+  # Multiply by SA of nodules to get expected cortex count
+  theo.cortex <- (cob_count*nodule.SA)*0.75
+  #############################################
+  
+  # COmpute Assemblage surface area
+  data.assemblage$SA <- 0
+  for(i in 1:nrow(data.assemblage)){
+    if(data.assemblage[i,"Type"] == "Flake"){
+      data.assemblage[i,"SA"] = data.assemblage[i,"Length"]*data.assemblage[i,"Width"]
+    } else if(data.assemblage[i, "Type"] == "Core"){
+      data.assemblage[i,"SA"] = 4*pi*((((((data.assemblage[i,"Length"]/2)^p)*((data.assemblage[i,"Width"]/2)^p)) +
+                                     ((((data.assemblage[i,"Length"]/2)^p)*((data.assemblage[i,"Thickness"]/2)^p))) +
+                                     ((((data.assemblage[i,"Width"]/2)^p)*((data.assemblage[i,"Thickness"]/2)^p))))/3)^(1/p))
+    }
+  }
+  
+  # Multiply by proportion of cortex (in decimal)
+  data.assemblage$Cortex <- data.assemblage$SA*as.numeric(data.assemblage$CortexArea)
+  ########################################################################################
+  
+  corRatio <- sum(data.assemblage$Cortex)/theo.cortex
+  # Create list to store output
+  store <- list("Ratio"=corRatio, "assemblage"=data.assemblage[,1:6])
+                      #, "OG Nod.Vol"=nodule.V, "Tot.assem.Vol"=sum(data.assemblage$V),
+                #"OG Nod.SA"=nodule.SA, "Theo.CortexSA"=theo.cortex, "Data"=data.assemblage)
+  return(store)
+
+}
+```
+
+## Test function
+```{r include=FALSE}
+ratio <- cortex_ratio(flake.dat, core.dat, survey.dat, level="bas", 
+             material="fine chert", material2="FineChert", grav=2.6)
+
+```
+
+# Bootstrap via Monte Carlo
+```{r include=FALSE}
+# Monte carlo simulations
+size <- dim(flake.dat)[1]
+size2 <- dim(core.dat)[1]
+sampling_cortex_ratio <- function(size, size2, level, material2, material, grav){
+  
+  flake.dat <- flake.dat[sample(1:nrow(flake.dat), size, replace=T),]
+  core.dat <- core.dat[sample(1:nrow(core.dat), size2, replace=T),]
+  
+  data.frame(cortex_ratio(flake.dat, core.dat, survey.dat, level=level, 
+             material=material, material2=material2, grav=grav)[1])
+}
+
+```
+
+## Fine chert/*Bas*
+```{r}
+# Run function and permutations using dplyr
+sampling <- ldply(replicate(1000, sampling_cortex_ratio(size, size2, level="bas",
+                                                        material2="FineChert", material="fine chert",
+                                                        grav=2.6), simplify=F))
+q_bas <- quantile(sampling$Ratio, c(.05, .95))
+
+r_bas <- cortex_ratio(flake.dat, core.dat, survey.dat, level="bas", 
+             material="fine chert", material2="FineChert", grav=2.6)[1]
+
+fnChert_bas <- sampling
+
+
+```
+
+
+## Fine Chert/*rbl-clbrf*
+```{r}
+# Run function and permutations using dplyr
+sampling <- ldply(replicate(1000, sampling_cortex_ratio(size, size2, level="rbl-clbrf",
+                                                        material2="FineChert", material="fine chert",
+                                                        grav=2.6), simplify=F))
+q_rbl.clbrf <- quantile(sampling$Ratio, c(.05, .95))
+
+r_rbl.clbrf <- cortex_ratio(flake.dat, core.dat, survey.dat, level="rbl-clbrf", 
+             material="fine chert", material2="FineChert", grav=2.6)[1]
+
+fnChert_rbl <- sampling
+```
+
+## Fine Chert/*rf*
+```{r}
+# Run function and permutations using dplyr
+sampling <- ldply(replicate(1000, sampling_cortex_ratio(size, size2, level="rf",
+                                                        material2="FineChert", material="fine chert",
+                                                        grav=2.6), simplify=F))
+q_rf <- quantile(sampling$Ratio, c(.05, .95))
+
+r_rf <- cortex_ratio(flake.dat, core.dat, survey.dat, level="rf", 
+             material="fine chert", material2="FineChert", grav=2.6)[1]
+
+fnChert_rf <- sampling
+```
+
+## Fine Chert/*Barf*
+```{r}
+# Run function and permutations using dplyr
+sampling <- ldply(replicate(1000, sampling_cortex_ratio(size, size2, level="barf",
+                                                        material2="FineChert", material="fine chert",
+                                                        grav=2.6), simplify=F))
+q_barf <- quantile(sampling$Ratio, c(.05, .95))
+
+r_barf <- cortex_ratio(flake.dat, core.dat, survey.dat, level="barf", 
+             material="fine chert", material2="FineChert", grav=2.6)[1]
+
+fnChert_barf <- sampling
+```
+
+
+
+
+# Plot Confidence intervals
+```{r message=FALSE, warning=FALSE}
+mydf <- data.frame()
+ggplot(mydf)+
+  geom_segment(aes(x=.4, y=1, xend=2.05, yend=1), linetype="dashed")+
+  
+  # Looking at Cortex Ratios at 75% import of cortex on nodules
+  geom_segment(aes(x=.45, y=q_bas[1], xend=.45, yend=q_bas[2], col="#FDE725FF"))+
+  geom_segment(aes(x=.95, y=q_rbl.clbrf[1], xend=.95, yend=q_rbl.clbrf[2], col="#FDE725FF"))+
+  geom_segment(aes(x=1.45, y=q_rf[1], xend=1.45, yend=q_rf[2], col="#FDE725FF"))+
+  geom_segment(aes(x=1.95, y=q_barf[1], xend=1.95, yend=q_barf[2], col="#FDE725FF"))+
+
+  # Point estimate for cortex ratios at 100% cortex import
+  geom_point(aes(x=.45, y=r_bas$Ratio))+
+  geom_point(aes(x=.95, y=r_rbl.clbrf$Ratio))+
+  geom_point(aes(x=1.45, y=r_rf$Ratio))+
+  geom_point(aes(x=1.95, y=r_barf$Ratio))+
+  
+  scale_x_discrete(limits=c(.45, .95, 1.45, 1.95), labels = c("BAS", "RBL-CLBRF", "RF", "BARF"))+
+  ggplot2::ylab("Cortex Ratio")+
+  ggplot2::xlab("Sehonghong Strata")+
+  theme(legend.position = "None", text=element_text(size=20))
+  #theme(text=element_text(size=20),legend.position = "none")+
+  #labs(colour="% of Cortex")
+
+
+```
+
+# VOlume Ratio
+
+## Volume Ratio and Bootstrap Confidence Interval
+```{r}
+
+# Compute volume for theoretical nodules based on landscape survey
+data.volume <- survey.dat[which(survey.dat$Raw.material.type=="fine chert"),]
+data.volume$V <- (4/3)*pi*(data.volume$Length/2)*(data.volume$Width/2)*(data.volume$Thickness/2)
+
+# Theoretical nodule volume
+data.volume <- na.omit(data.volume)
+Est.nodV <- mean(data.volume$V)*0.75
+
+volume_ratio <- function(flake, core, level, material){
+  
+  comp.l <- data.frame(Volume.Ratio = NA,
+                       Ass.Volume = NA,
+                       Nod.Volume = NA,
+                       Nod.Number = NA,
+                       Est.Nod.Number = NA)
+  
+  ass.flake.volume <- flake$TechLength[which(flake$RawMaterial==material & flake$Level==level)]*
+    flake$MaxTechWidth[which(flake$RawMaterial==material & flake$Level==level)]*
+    flake$MidThickness[which(flake$RawMaterial==material & flake$Level==level)]
+
+  ass.core.volume <- (4/3)*pi*(core$MaxLength[which(core$RawMaterial==material & core$Level==level)]/2)*
+    (core$MaxWidth[which(core$RawMaterial==material & core$Level==level)]/2)*
+    (core$MaxThickness[which(core$RawMaterial==material & core$Level==level)]/2)
+
+  # Observed sum of assemblage volume
+  ass.sum.volume <- sum(ass.flake.volume) + sum(ass.core.volume)
+  comp.l$Ass.Volume <- ass.sum.volume
+  
+  # Number of cores
+  n.cores <- length(ass.core.volume)
+  comp.l$Nod.Number <- n.cores
+
+  # Volume ratio
+  volume.ratio <- ass.sum.volume/(Est.nodV*n.cores)
+  comp.l$Nod.Volume <- Est.nodV
+  comp.l$Volume.Ratio <- volume.ratio
+  
+  comp.l$Est.Nod.Number <- comp.l$Ass.Volume/comp.l$Nod.Volume
+  
+  #print(volume.ratio)
+  return(comp.l)
+}
+
+
+
+#######################
+# Bootstrapping
+#######################
+
+sampling_volume_ratio <- function(flake, core, level, material){
+  
+  size <- nrow(flake[which(flake$RawMaterial==material & flake$Level==level),])
+  size2 <- nrow(core[which(core$RawMaterial==material & core$Level==level),])
+  
+  flake <- flake[which(flake$RawMaterial==material & flake$Level==level),]
+  core <- core[which(core$RawMaterial==material & core$Level==level),]
+  
+  flake.dat <- flake[sample(1:size, size, replace=T),]
+  core.dat <- core[sample(1:size2, size2, replace=T),]
+  
+  data.frame(volume_ratio(flake.dat, core.dat, level, material)$Volume.Ratio)
+}
+
+
+```
+
+## Fine chert/*BAS*
+```{r}
+# Run function and permutations using dplyr
+
+sampling <- ldply(replicate(1000,
+                            sampling_volume_ratio(flake.dat, core.dat, level="bas", material="FineChert"),
+                            simplify=F))
+colnames(sampling) <- "Ratio"
+q_bas <- quantile(sampling$Ratio, c(.05, .95))
+
+# Estimated number of cores
+bas.df <- volume_ratio(flake.dat, core.dat, "bas", "FineChert")
+bas.df$Nod.Number
+bas.df$Est.Nod.Number
+bas.df$Ass.Volume
+bas.df$Nod.Volume
+bas.df$Volume.Ratio
+```
+
+## Fine chert/*RBL-CLBRF*
+```{r}
+
+sampling <- ldply(replicate(1000,
+                            sampling_volume_ratio(flake.dat, core.dat, level="rbl-clbrf", material="FineChert"),
+                            simplify=F))
+colnames(sampling) <- "Ratio"
+q_rbl.clbrf <- quantile(sampling$Ratio, c(.05, .95))
+
+# Estimated number of cores
+rbl_clbrf.df <- volume_ratio(flake.dat, core.dat, "rbl-clbrf", "FineChert")
+rbl_clbrf.df$Nod.Number
+rbl_clbrf.df$Est.Nod.Number
+rbl_clbrf.df$Ass.Volume
+rbl_clbrf.df$Nod.Volume
+rbl_clbrf.df$Volume.Ratio
+```
+
+## Fine chert/*RF*
+```{r}
+#################
+# rf
+#################
+sampling <- ldply(replicate(1000,
+                            sampling_volume_ratio(flake.dat, core.dat, level="rf", material="FineChert"),
+                            simplify=F))
+colnames(sampling) <- "Ratio"
+q_rf <- quantile(sampling$Ratio, c(.05, .95))
+
+rf.df <- volume_ratio(flake.dat, core.dat, "rf", "FineChert")
+rf.df$Nod.Number
+rf.df$Est.Nod.Number
+rf.df$Ass.Volume
+rf.df$Nod.Volume
+rf.df$Volume.Ratio
+```
+
+## Fine chert/*BARF*
+```{r}
+
+sampling <- ldply(replicate(1000,
+                            sampling_volume_ratio(flake.dat, core.dat, level="barf", material="FineChert"),
+                            simplify=F))
+colnames(sampling) <- "Ratio"
+q_barf <- quantile(sampling$Ratio, c(.05, .95))
+
+barf.df <- volume_ratio(flake.dat, core.dat, "barf", "FineChert")
+barf.df$Nod.Number
+barf.df$Est.Nod.Number
+barf.df$Ass.Volume
+barf.df$Nod.Volume
+barf.df$Volume.Ratio
+```
+
+## Plotting Confidence Intervals
+```{r}
+mydf <- data.frame()
+ggplot(mydf)+
+  geom_segment(aes(x=.4, y=1, xend=2.05, yend=1), linetype="dashed")+
+  
+  # Looking at Volume ratios
+  geom_segment(aes(x=.45, y=q_bas[1], xend=0.45, yend=q_bas[2], col="#FDE725FF"))+
+  geom_segment(aes(x=.95, y=q_rbl.clbrf[1], xend=0.95, yend=q_rbl.clbrf[2], col="#FDE725FF"))+
+  geom_segment(aes(x=1.45, y=q_rf[1], xend=1.45, yend=q_rf[2], col="#FDE725FF"))+
+  geom_segment(aes(x=1.95, y=q_barf[1], xend=1.95, yend=q_barf[2], col="#FDE725FF"))+
+
+  # Point estimate for volume ratios
+  geom_point(aes(x=.45, y=bas.df$Volume.Ratio))+
+  geom_point(aes(x=.95, y=rbl_clbrf.df$Volume.Ratio))+
+  geom_point(aes(x=1.45, y=rf.df$Volume.Ratio))+
+  geom_point(aes(x=1.95, y=barf.df$Volume.Ratio))+
+  
+  scale_x_discrete(limits=c(.45, .95, 1.45, 1.95), labels = c("BAS", "RBL-CLBRF", "RF", "BARF"))+
+  ggplot2::ylab("Volume Ratio")+
+  ggplot2::xlab("Sehonghong Strata")+
+  theme(legend.position = "None", text=element_text(size=20))
+```
+
+
