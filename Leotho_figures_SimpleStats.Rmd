@@ -48,7 +48,7 @@ library(coxed)
 
 ```{r}
 # Import data
-df.data <- read.csv("~/LithicProcurementProject/Seh 2016 survey recording system_complete_03.17.17.csv", header=T)
+df.data <- read.csv("~/Seh 2016 survey recording system_complete_03.17.17.csv", header=T)
 
 # Remove previously identified quarries from new surveyed areas
 df.data <- df.data[-c(which(df.data$survey_square_id=="Chert outcrop 2" |
@@ -99,7 +99,7 @@ df.data$SA <- 4*pi*((((((df.data$Length/2)^p)*((df.data$Width/2)^p)) +
 ```{r echo=FALSE}
 #import flake data
 df.flake <- 
-  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_flakes.csv", header=T)
+  read.csv("~/sehonghong_flakes.csv", header=T)
 data.flake <- df.flake[,c(4,6,11,12,66:73,77,82)]
 data.flake <- data.flake[which(data.flake$RawMaterial=="Agate"|
                     data.flake$RawMaterial=="CoarseChert"|
@@ -124,7 +124,7 @@ data.flake$Level <- as.factor(data.flake$Level)
 
 # Import core data
 df.core <- 
-  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_cores.csv", header=T)
+  read.csv("~/sehonghong_cores.csv", header=T)
 
 data.core <- df.core[,c(5,7:8,13:16,76:79,82)]
 data.core <- data.core[which(data.core$RawMaterial=="Agate"|
