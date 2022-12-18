@@ -20,10 +20,10 @@ library(boot)
 ```{r include=FALSE}
 # Import survey data from landscape
 survey.dat <- 
-  read.csv("~/LithicProcurementProject/Seh 2016 survey recording system_complete_03.17.17.csv", header=T)
+  read.csv("~/Seh 2016 survey recording system_complete_03.17.17.csv", header=T)
 # Import flake data from Sehonghong
 flake.dat <-
-  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_flakes.csv", header=T)
+  read.csv("~/sehonghong_flakes.csv", header=T)
 
 # Combine rbl and clbrf
 flake.dat$Level[which(flake.dat$Level=="rbl"|
@@ -60,7 +60,7 @@ for(i in 1:nrow(flake.dat)){
 
 # Import Core data from Sehonghong
 core.dat <- 
-  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_cores.csv", header=T)
+  read.csv("~/sehonghong_cores.csv", header=T)
 
 # COmbine rbl and clbrf
 core.dat$Level[which(core.dat$Level=="rbl"|
