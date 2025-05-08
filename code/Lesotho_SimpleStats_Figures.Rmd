@@ -296,7 +296,7 @@ p <- ggplot(df.land, aes(x=log(Mass), y=Lithic, fill=Environment))+
   geom_point(position = position_jitterdodge()) + geom_boxplot(alpha = 0.7)
 p + scale_fill_manual(values=c("#3399FF", "#996633"))
 
-ggsave("Raw-Material.png", path = paste0(dir+"/results/figures"))
+ggsave("Raw-Material.png", path = paste0(dir,"/results/figures"))
 ```
 
 ## Compute ANOVA for Mass as a Function of Lithic Material and Environment
@@ -347,7 +347,7 @@ plot1 <- ggplot(prop.flake_land[1:14,], aes(x=as.factor(Context), y=Proportion, 
   geom_bar(position="stack", stat="identity", colour="black") +
   xlab("Context") +
   scale_fill_viridis_d(option="turbo", direction=-1)+
-  theme(legend.title=element_blank(), text=element_text(size=20))
+  theme(legend.title=element_blank(), text=element_text(size=15))
 
 plot2 <- ggplot(prop.flake_land, aes(x=as.factor(Context), y=Proportion, fill=Lithic)) +
   geom_bar(position="stack", stat="identity", colour="black") +
@@ -366,6 +366,8 @@ plot2 <- ggplot(prop.flake_land, aes(x=as.factor(Context), y=Proportion, fill=Li
 plot_grid(plot1,
           plot2+theme(legend.position = "none"),
           ncol=1)
+
+ggsave("Raw-Material-Proportion.png", path = paste0(dir,"/results/figures"))
 ```
 
 ## Chi-square tests
