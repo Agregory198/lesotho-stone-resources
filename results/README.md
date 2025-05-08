@@ -1,2 +1,2 @@
 # Results
-This folder contains the figures and rendered PDF document for the results
+This folder contains smapled figures from the analysis.
