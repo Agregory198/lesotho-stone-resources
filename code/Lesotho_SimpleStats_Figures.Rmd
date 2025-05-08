@@ -293,8 +293,10 @@ df.land |>
   dplyr::summarise(Mass = sum(Mass)) -> gplot
 
 p <- ggplot(df.land, aes(x=log(Mass), y=Lithic, fill=Environment))+
-  geom_point(position = position_jitterdodge()) + geom_boxplot(aes(alpha=.7))
+  geom_point(position = position_jitterdodge()) + geom_boxplot(alpha = 0.7)
 p + scale_fill_manual(values=c("#3399FF", "#996633"))
+
+ggsave("Raw-Material.png", path = paste0(dir+"/results/figures"))
 ```
 
 ## Compute ANOVA for Mass as a Function of Lithic Material and Environment
