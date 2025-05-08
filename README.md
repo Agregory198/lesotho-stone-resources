@@ -20,6 +20,8 @@ This project uses frequentist analyses and regressions to model the relationship
 
 ![Raw-Materials](results/figures/Raw-Material.png)
 
+![Raw-Material-Prop](results/figures/Raw-Material_Proportion.png)
+
 
 ## Author
 Alex Gregory
