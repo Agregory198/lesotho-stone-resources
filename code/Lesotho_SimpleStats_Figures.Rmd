@@ -1,0 +1,476 @@
+---
+title: "Redone Stats"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Import Packages
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(rcarbon)
+library(forcats)
+library(ape)
+library(dplyr)
+library(boot)
+library(broom)
+library(raster)
+library(sp)
+library(car)
+library(ggpubr)
+library(vegan)
+library(rstatix)
+library(plyr)
+library(coxed)
+```
+
+
+## Build Radiocarbon Data
+The code below calibrates radiocarbon data from Table 1 in the text with SHCal20 for the four layers at Sehonghong.
+```{r message=FALSE, warning=FALSE}
+# Input is from Pargeter et al. (2017)
+# Refer to article for full table with dates and lab ID
+cal <- rcarbon::calibrate(x = c(11090, 12180, 12200, 12250, 12410, 12470,
+                                12800, 13000, 13200, 20600, 15700, 17820),
+                          errors = c(230, 11, 250, 300, 45, 100,
+                                     250, 140, 150, 100, 150, 270),
+                          calCurves = "shcal20")
+
+summary(cal)
+```
+
+
+# Import data
+```{r}
+# Import data from directory
+df.data <- read.csv("~/LithicProcurementProject/Seh 2016 survey recording system_complete_03.17.17.csv", header=T)
+
+# Remove previously identified quarries from new surveyed areas
+df.data <- df.data[-c(which(df.data$survey_square_id=="Chert outcrop 2" |
+                        df.data$survey_square_id=="calcite sample" |
+                          df.data$survey_square_id=="Dolerite outcrop" |
+                          df.data$survey_square_id=="Chert quarry sehonghong village" |
+                          df.data$survey_square_id=="dolerite sample" |
+                          df.data$survey_square_id=="Hornfels sample" |
+                          df.data$survey_square_id=="Seh-a" |
+                          df.data$survey_square_id=="Seh-b" |
+                          df.data$survey_square_id=="Seh-c" |
+                          df.data$survey_square_id=="Seh-d" |
+                          df.data$survey_square_id=="Seh-e" |
+                          df.data$survey_square_id=="SEH-chert outcrop 3")),]
+
+
+# Subset the data based upon only the lithics recorded at Sehonghong
+df.land <- df.data |>
+  select(survey_square_id, Location, Latitude_x_min, Longitude_y_min, Raw.material.type,
+         Length, Width, Thickness, Mass)
+
+colnames(df.land) <- c("ID", "Environment", "x", "y", "Lithic", "Length", "Width", "Thickness", "Mass")
+
+df.land[which(df.land$Lithic=="agate"), "Lithic"] <- "Agate"
+df.land[which(df.land$Lithic=="coarse chert"), "Lithic"] <- "CoarseChert"
+df.land[which(df.land$Lithic=="crystal quartz"), "Lithic"] <- "CrystallineQuartz"
+df.land[which(df.land$Lithic=="dolerite" | df.land$Lithic=="Dolerite"), "Lithic"] <- "Dolerite"
+df.land[which(df.land$Lithic=="fine chert" | df.land$Lithic=="Fine chert"), "Lithic"] <- "Fine Chert"
+df.land[which(df.land$Lithic=="quartzite"), "Lithic"] <- "Quartzite"
+df.land[which(df.land$Lithic=="sandstone"), "Lithic"] <- "Sandstone"
+
+df.land <- df.land |>
+  dplyr::filter(Lithic %in% c("Agate", "CoarseChert", "CrystallineQuartz", "Dolerite", "Fine Chert", "Quartzite", "Sandstone"))
+
+# Calculate the volume for all nodules
+df.data$V <- (4/3)*pi*(df.data$Length/2)*(df.data$Width/2)*(df.data$Thickness/2)
+
+# Calculate surface area for all nodules
+p=1.6075 # Exponent for elliptical surface area
+df.data$SA <- 4*pi*((((((df.data$Length/2)^p)*((df.data$Width/2)^p)) +
+                            ((((df.data$Length/2)^p)*((df.data$Thickness/2)^p))) +
+                            ((((df.data$Width/2)^p)*((df.data$Thickness/2)^p))))/3)^(1/p))
+
+
+```
+
+## Import Sehonghong Data
+```{r echo=FALSE}
+#import flake data
+df.flake <- 
+  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_flakes.csv", header=T)
+data.flake <- df.flake[,c(4,6,11,12,14,20,66:73,77,82)]
+data.flake <- data.flake[which(data.flake$RawMaterial=="Agate"|
+                    data.flake$RawMaterial=="CoarseChert"|
+                    data.flake$RawMaterial=="CrystallineQuartz"|
+                    data.flake$RawMaterial=="Dolerite"|
+                    data.flake$RawMaterial=="FineChert"|
+                    data.flake$RawMaterial=="Quartzite"|
+                    data.flake$RawMaterial=="Sandstone"),] |>
+  dplyr::filter(Completeness == "Complete")
+#data.flake$RawMaterial <- droplevels(data.flake$RawMaterial)
+
+# COmbine rbl and clbrf
+data.flake$Level <- as.character(data.flake$Level)
+
+data.flake$Level[data.flake$Level=="rbl"|
+                         data.flake$Level=="clbrf"] <- "rbl-clbrf"
+
+data.flake <- data.flake[which(data.flake$Level=="barf" |
+                                 data.flake$Level=="bas" |
+                                 data.flake$Level=="rbl-clbrf" |
+                                 data.flake$Level=="rf"),]
+data.flake$Level <- as.factor(data.flake$Level)
+
+# Import core data
+df.core <- 
+  read.csv("C:/Users/grego/OneDrive/Documents/LithicProcurementProject/SehonghongCores/sehonghong_cores.csv", header=T)
+
+data.core <- df.core[,c(5,7:8,13:16,76:79,82)]
+data.core <- data.core[which(data.core$RawMaterial=="Agate"|
+                    data.core$RawMaterial=="CoarseChert"|
+                    data.core$RawMaterial=="CrystallineQuartz"|
+                    data.core$RawMaterial=="Dolerite"|
+                    data.core$RawMaterial=="FineChert"|
+                    data.core$RawMaterial=="Quartzite"|
+                    data.core$RawMaterial=="Sandstone"),]
+
+#data.core$RawMaterial <- droplevels(data.core$RawMaterial)
+
+# COmbine rbl and clbrf
+data.core$Level <- as.character(data.core$Level)
+data.core$Level[which(data.core$Level=="rbl"|
+                         data.core$Level=="clbrf")] <- "rbl-clbrf"
+
+data.core <- data.core[which(data.core$Level=="barf" |
+                                 data.core$Level=="bas" |
+                                 data.core$Level=="rbl-clbrf" |
+                                 data.core$Level=="rf"),]
+data.core$Level <- as.factor(data.core$Level)
+
+```
+
+### Merge Flake and Core Data
+Here, we will compute the flake-to-core ratios with combined datasets
+```{r}
+flakes <- data.flake |>
+  dplyr::select(RawMaterial, Level) |>
+  mutate(Class = rep("flake", nrow(data.flake)))
+
+cores <- data.core |>
+  dplyr::select(RawMaterial, Level) |>
+  mutate(Class = rep("core", nrow(data.core)))
+
+# Caluclate flake-to-core ratios
+seh_merge <- rbind(flakes, cores)
+seh_merge |>
+  dplyr::filter(RawMaterial=="FineChert") |>
+  dplyr::group_by(RawMaterial, Level, Class) |>
+  dplyr::summarize(count=n()) |>
+  dplyr::group_by(Class)
+
+# Construct dataframe using the ratios calculated above
+flake_core_ratio <- data.frame(Level = c("BAS", "RBL-CLBRF", "RF", "BARF"),
+                               Flake_to_Core = c(53/61, 86/74, 61/24, 63/4))
+
+# Visualize the flake-to-core ratio
+flake_core_ratio |>
+  mutate(Level = factor(Level, levels = c("BAS", "RBL-CLBRF", "RF", "BARF")))|>
+  ggplot() +
+  geom_bar(aes(x=Level, y=Flake_to_Core), stat="identity") +
+  ylab("Flake-to-Core") +
+  xlab("Layer") +
+  theme(text=element_text(size=20))+
+  geom_text(aes(y = Flake_to_Core, x = Level,
+                label=round(Flake_to_Core, 2),
+                vjust = -0.4))
+
+```
+
+
+# Compile Cortical to non-cortical data
+Below, the noncortical to cortical flakes show high amounts of cortex in BAS and RBL-CLBRF. COmbine this with the low flake to core ratio and this suggest local movement and materials being depsotied. As we transition to RF, we still have a lot of cores deposited but far less cortex, suggesting a potential affect of changes in knapping behavior that does not focus on cortical cores as much (little cortex but still a lot of cores to flakes). BARF is a clear change with little cortex to noncortex and very few cores compared to flakes, suggesting massive switch in procurement and mobility.
+```{r}
+# Summarize the proportion of cortical surface area
+data.flake |> 
+  dplyr::group_by(CortexArea, Level) |>
+  dplyr::select(CortexArea) |>
+  mutate(CortexArea = factor(CortexArea, levels=c("0%","1-9%", "11-40%","61-90%", "41-60%", "91-99%","100%")),
+         Level = factor(Level, levels=c("bas", "rbl-clbrf", "rf", "barf"))) |>
+  dplyr::summarize(count=n()) -> seh_cortex
+
+# Separate cortex from non-cortical
+seh_ncortex <- seh_cortex
+seh_ncortex$CortexArea <- ifelse(seh_cortex$CortexArea=="0%", "Non-cortical", "Cortical")
+seh_ncortex |>
+  dplyr::group_by(CortexArea, Level) |>
+  dplyr::summarize(count=sum(count))
+
+# Create dataframe
+noncort_to_cort <- data.frame(Level = c("BAS", "RBL-CLBRF", "RF", "BARF"),
+                              NonCort_to_Cort = c(22/56,25/78,26/55,47/56))
+
+# Visulaize noncortical-to-cortical ratios
+noncort_to_cort |>
+  mutate(Level = factor(Level, levels = c("BAS", "RBL-CLBRF", "RF", "BARF")))|>
+  ggplot() +
+  geom_bar(aes(x=Level, y=NonCort_to_Cort), stat="identity") +
+  ylab("Noncortical-to-Cortical Flakes") +
+  xlab("Layer") +
+  theme(text=element_text(size=20))+
+  geom_text(aes(y = NonCort_to_Cort, x = Level,
+                label=round(NonCort_to_Cort, 2),
+                vjust = -0.4))
+```
+
+
+
+
+```{r}
+
+
+# Add an analysis on the cortex roundness by layer
+df.flake |> 
+  dplyr::filter(RawMaterial=="FineChert")|>
+  dplyr::group_by(CortexRoundness, Level) |>
+  dplyr::select(CortexRoundness) |>
+  dplyr::filter(Level == "bas" | Level == "rbl" | Level == "clbrf" | Level == "rf" | Level == "barf") |>
+  mutate(CortexArea = factor(CortexRoundness, levels=c("Angular", "SubangularSubrounded", "Rounded", "Indeterminate"))) |>
+  dplyr::summarize(count=n()) -> seh_cortex
+
+for(i in 1:nrow(seh_cortex)){
+  if(seh_cortex[i,"Level"]=="rbl" | seh_cortex[i,"Level"]=="clbrf"){
+    seh_cortex[i, "Level"] <- "rbl-clbrf"
+  }
+}
+
+ggplot(seh_cortex, aes(x=CortexRoundness, y=count, fill=Level)) +
+  geom_bar(stat="identity")
+
+df.core |> 
+    dplyr::group_by(CortexRoundness, Level) |>
+    dplyr::select(CortexRoundness) |>
+    dplyr::summarise(count=n()) -> seh_cortex
+
+seh_cortex |>
+  dplyr::filter(CortexRoundness != "")|>
+  dplyr::mutate(Level = factor(Level, levels = c("bas", "rf", "rbl-clbrf", "barf")))|>
+  dplyr::group_by(Level) |>
+  mutate(s = sum(count)) |>
+  mutate(prop = count/s) |>
+  ggplot() +
+  geom_bar(aes(x=CortexRoundness, y = prop), stat="identity") +
+  facet_grid(~Level)+
+  theme(axis.text.x = element_text(face = "bold", angle = 45, hjust=1, size=15),
+        axis.text.y = element_text(size=15),
+        text = element_text(size=15))
+
+```
+
+
+
+
+
+# Description of Landscape Survey
+```{r message=FALSE, warning=FALSE, include=FALSE}
+df.land |>
+  dplyr::select(Lithic, Environment, Mass) |>
+  dplyr::group_by(Lithic, Environment) |>
+  dplyr::mutate(Mass = ifelse(is.na(Mass), 0, Mass)) |>
+  dplyr::summarise(Mass = sum(Mass)) -> gplot
+
+p <- ggplot(df.land, aes(x=log(Mass), y=Lithic, fill=Environment))+
+  geom_point(position = position_jitterdodge()) + geom_boxplot(aes(alpha=.7))
+p + scale_fill_manual(values=c("#3399FF", "#996633"))
+```
+
+## Compute ANOVA for Mass as a Function of Lithic Material and Environment
+```{r}
+# Model 1
+aov1 <- aov(lm.land <- lm(log(Mass)~Lithic*Environment, data=df.land))
+summary(aov1)
+
+# Pairwise comparison
+tuk.aov1 <- TukeyHSD(aov1)
+round(tuk.aov1$`Lithic:Environment`[which(tuk.aov1$`Lithic:Environment`[,4]<.05),],3)
+
+# Simple count data for observation per raw material and environment and survey area (ID)
+df.land %>%
+  dplyr::select(Lithic, Mass, Environment) %>%
+  dplyr::filter(!is.na(Mass)) %>%
+  dplyr::group_by(Lithic, Environment) %>%
+  dplyr::summarise(count=n(), Mass=sum(Mass))
+```
+
+## Compare Survey Data to Sehonghong Flakes
+```{r}
+# COmpute proportions of lithic material by environment (landscape survey)
+land.table <- table(df.land$Lithic, df.land$Environment)
+land.prop <- round(prop.table(land.table,2),3)
+
+# COmpute proportions of lithic by excavation level
+flake.table <- table(data.flake$RawMaterial, data.flake$Level)
+flake.prop <- round(prop.table(flake.table,2),3)
+
+# COmbine above two proportions
+prop.flake_land <- as.data.frame(cbind(land.prop, flake.prop))
+prop.flake_land$Lithic <- rownames(land.prop)
+
+# Rearrange levels for stratigraphic ordering
+prop.flake_land <- prop.flake_land[,c(1:2,4,5,6,3,7)]
+
+prop.flake_land <- gather(prop.flake_land, "Context", "Proportion",c(Riverine, Terrestrial, barf, bas, `rbl-clbrf`, rf))
+#prop.flake_land$Context <- as.factor(prop.flake_land$Context)
+prop.flake_land$Context <- factor(prop.flake_land$Context, levels=c("Riverine", "Terrestrial",
+                                                                    "bas", "rbl-clbrf",
+                                                                    "rf", "barf"))
+
+
+# Stacked plot with lithic as grouping variable
+
+ggplot(prop.flake_land[1:14,], aes(x=as.factor(Context), y=Proportion, fill=Lithic)) +
+  geom_bar(position="stack", stat="identity", colour="black") +
+  xlab("Context") +
+  scale_fill_viridis_d(option="turbo", direction=-1)+
+  theme(legend.title=element_blank(), text=element_text(size=20))
+
+ggplot(prop.flake_land, aes(x=as.factor(Context), y=Proportion, fill=Lithic)) +
+  geom_bar(position="stack", stat="identity", colour="black") +
+  xlab("Context") +
+  scale_fill_viridis_d(option="turbo", direction=-1,labels=c("Agate",
+                                    "Coarse Chert",
+                                    "Crystalline Quartz",
+                                    "Dolerite",
+                                    "Fine Chert",
+                                    "Quartzite",
+                                    "Sandstone"))+
+  theme(text=element_text(size=15))+
+  theme(legend.title=element_blank())+
+  scale_x_discrete(labels=c("bas"="BAS", "rbl-clbrf"="RBL-CLBRF","rf"="RF","barf"="BARF"))
+
+#########################################
+#proportion testing
+#########################################
+land.t <- land.table[1:7]
+land.r <- land.table[8:14]
+
+land.dat <- data.frame("Riverine"=land.r,
+                       "Terrestrial"=land.t,
+                       "barf"=flake.table[1:7],
+                       "bas"=flake.table[8:14],
+                       "rbl-clbrf"=flake.table[15:21],
+                       "rf"=flake.table[22:28])
+
+land.dat_tbl <- as.table(rbind(c(34, 16, 3, 3, 1, 2),
+                               c(0, 19, 29, 16, 13, 16),
+                               c(3, 0, 44, 12, 10, 21),
+                               c(132, 85, 28, 59, 36, 56),
+                               c(3, 21, 201, 138, 194, 140),
+                               c(6, 92, 0, 2, 10, 15),
+                               c(171, 63, 0, 4, 6, 1)))
+rnames <- rownames(land.table)
+cnames <- colnames(land.dat)
+dimnames(land.dat_tbl) <- list(Material = rnames,
+                               Context = cnames)
+
+# Test for difference in raw material frequency
+chisq.test(land.dat_tbl)
+# Pairwise test
+chisq.posthoc.test::chisq.posthoc.test(land.dat_tbl)
+```
+
+## Compare Survey Data to Sehonghong Cores
+```{r}
+library(rstatix)
+
+# Compute proportions of lithic material by environment (landscape survey)
+land.table <- table(df.land$Lithic, df.land$Environment)
+land.prop <- round(prop.table(land.table,2),3)
+
+# Compute proportions of lithic by excavation level
+core.table <- table(data.core$RawMaterial, data.core$Level)
+core.prop <- round(prop.table(core.table,2),3)
+core.prop <- core.prop[-6,]
+
+rownames(core.prop) <- rownames(land.prop[-c(6:7),])
+
+# Combine above two proportions
+prop.core_land <- as.data.frame(cbind(land.prop[-c(6:7),], core.prop))
+
+# Add back in proportions of 
+prop.core_land <- rbind(prop.core_land, c(.032, .150, rep(0,4)))
+prop.core_land <- rbind(prop.core_land, c(.858, .271, rep(0,4)))
+rownames(prop.core_land) <- rownames(land.prop)
+
+prop.core_land$Lithic <- rownames(land.prop)
+
+
+
+# Rearrange levels for stratigraphic ordering
+prop.core_land <- prop.core_land[,c(1:2,4,5,6,3,7)]
+
+prop.core_land <- 
+  gather(prop.core_land, "Context", "Proportion",c(Riverine, Terrestrial,
+                                                   barf, bas, `rbl-clbrf`, rf))
+#prop.core_land$Context <- as.factor(prop.core_land$Context)
+prop.core_land$Context <- 
+  factor(prop.core_land$Context, levels=c("Riverine", "Terrestrial",
+                                          "bas", "rbl-clbrf","rf", "barf"))
+
+# Stacked plot with lithic as grouping variable
+ggplot(prop.core_land, aes(x=as.factor(Context), y=Proportion, fill=Lithic)) +
+  geom_bar(position="stack", stat="identity", colour="black") +
+  xlab("Context") +
+  scale_fill_viridis_d(option="turbo", direction=-1,labels=c("Agate",
+                                    "Coarse Chert",
+                                    "Crystalline Quartz",
+                                    "Dolerite",
+                                    "Fine Chert",
+                                    "Quartzite",
+                                    "Sandstone"))+
+  theme(text=element_text(size=15))+
+  theme(legend.title=element_blank()) + 
+  scale_x_discrete(labels=c("bas"="BAS", "rbl-clbrf"= "RBL-CLBRF",
+                            "rf"= "RF","barf"= "BARF"))
+
+#########################
+# Stats
+########################
+land.dat_tbl <- as.table(rbind(c(34, 16, 0, 3, 3, 1),
+                               c(0, 19, 3, 4, 5, 6),
+                               c(3, 0, 5, 1, 2, 21),
+                               c(132, 85, 0, 1, 2, 0),
+                               c(3, 21, 4, 61, 74, 24),
+                               c(6, 92, 0, 0, 0, 0),
+                               c(171, 63, 0, 0, 0, 0)))
+rnames <- rownames(land.table)
+cnames <- colnames(land.dat)
+dimnames(land.dat_tbl) <- list(Material = rnames,
+                               Context = cnames)
+
+# Test for differences in frequency
+## Fisher's test is used because many values have 0-entries
+fisher_test(land.dat_tbl, simulate.p.value = T)
+
+# Pairwise test
+## Fisher's only accepts 2 dimensions at a time for each layer of Sehonghong and and riverine/terrestrial environments
+c <- 0
+for(i in 1:5){
+  for(j in 2:(6-c)){
+    print(paste("Showing results of",
+                colnames(land.dat_tbl)[i],
+                "and",
+                colnames(land.dat_tbl)[j]))
+    print.data.frame(pairwise_fisher_test(land.dat_tbl[, c(i, j+c)], simulate.p.value=T))
+  }
+  c <- c + 1
+}
+```
+
+
+
+
